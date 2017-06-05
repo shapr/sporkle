@@ -35,6 +35,7 @@ executable sporkle-exe
                      , persistent
                      , persistent-sqlite
                      , persistent-template
+                     , lucid
   default-language:    Haskell2010
 
 test-suite sporkle-test
