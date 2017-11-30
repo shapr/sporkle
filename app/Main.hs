@@ -14,10 +14,12 @@ module Main where
 import           Web.Spock
 import           Web.Spock.Config
 
+import           Control.Monad.IO.Class           (liftIO)
+
 import           Control.Monad.Logger    (LoggingT, runStdoutLoggingT)
 import           Data.Aeson              hiding (json)
 import           Data.String
-import           Data.Text               (Text, unpack)
+import           Data.Text               (Text, pack, unpack)
 import           Data.Text.Lazy          (toStrict)
 import           Data.Time
 import           Database.Persist        hiding (get)
@@ -60,35 +62,37 @@ runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 type ApiAction a = SpockAction SqlBackend () () a
 type Api = SpockM SqlBackend () () ()
 
-
 app = do
   get root $ do
-    redirect "exe"
+    redirect "exercise"
   get "exercise" $ do
     allExercise <- runSQL $ selectList [] [Asc ExerciseId]
     html . toStrict . renderText $ pageTemplate
       (do exerciseTemplate allExercise) "some title"
   get "exercise" $ do
     allExercise <- runSQL $ selectList [] [Asc ExerciseId]
+    nowTime <- liftIO getCurrentTime
     html . toStrict . renderText $ pageTemplate
       (do h1_ "Exercise List"
           exerciseTemplate allExercise
           h1_ "Do stuff"
-          form_ [action_ "exe", method_ "post"] $ do
+          form_ [action_ "exercise", method_ "post"] $ do
             label_ "Name: "
             input_ [type_ "text", name_ "name"]
+            label_ "Reps: "
             input_ [type_ "text", name_ "reps"]
-            input_ [type_ "text", name_ "whendo"]
+            label_ "Time: "
+            input_ [type_ "text", name_ "whendo", value_ (pack . show $ nowTime)]
             input_ [type_ "submit"]
       ) "Exercise List"
 
-  post "exe" $ do
+  post "exercise" $ do
     ps <- params
     let maybeExercise = mbEx ps
     case maybeExercise of
       Just theExercise -> do
         _ <- runSQL $ insert theExercise
-        redirect "/exe"
+        redirect "/exercise"
       Nothing -> errorJson 1 "You screwed up"
 
   get ("exercise" <//> var) $ \exerciseId -> do
@@ -96,13 +100,6 @@ app = do
     case maybeExercise of
       Nothing          -> errorJson 2 "nope"
       Just theExercise -> json theExercise
-  post "exercise" $ do
-    maybeExercise <- jsonBody :: ApiAction (Maybe Exercise)
-    case maybeExercise of
-      Nothing -> errorJson 1 "Failed to parse request body"
-      Just theExercise -> do
-        newId <- runSQL $ insert theExercise
-        json $ object ["result" .= String "success", "id" .= newId]
 
 errorJson :: Int -> Text -> ApiAction ()
 errorJson code message =
