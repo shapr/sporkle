@@ -65,10 +65,10 @@ type Api = SpockM SqlBackend () () ()
 app = do
   get root $ do
     redirect "exercise"
-  get "exercise" $ do
-    allExercise <- runSQL $ selectList [] [Asc ExerciseId]
-    html . toStrict . renderText $ pageTemplate
-      (do exerciseTemplate allExercise) "some title"
+  -- get "exercise" $ do
+  --   allExercise <- runSQL $ selectList [] [Asc ExerciseId]
+  --   html . toStrict . renderText $ pageTemplate
+  --     (do exerciseTemplate allExercise) "some title"
   get "exercise" $ do
     allExercise <- runSQL $ selectList [] [Asc ExerciseId]
     nowTime <- liftIO getCurrentTime
@@ -88,6 +88,34 @@ app = do
 
   post "exercise" $ do
     ps <- params
+    let maybeExercise = mbEx ps
+    case maybeExercise of
+      Just theExercise -> do
+        _ <- runSQL $ insert theExercise
+        redirect "/exercise"
+      Nothing -> errorJson 1 "You screwed up"
+
+  get "exercisefilter" $ do
+    ps <- params
+    let fil = case lookup "filter" ps of
+                Nothing -> []
+                Just thefilter -> [Filter ExerciseName (Left thefilter) (BackendSpecificFilter "LIKE")]
+    allExercise <- runSQL $ selectList fil [Asc ExerciseId]
+    nowTime <- liftIO getCurrentTime
+    html . toStrict . renderText $ pageTemplate
+      (do h1_ "Exercise List"
+          exerciseTemplate allExercise
+          h1_ "Do stuff"
+          form_ [action_ "exercise", method_ "post"] $ do
+            label_ "Name: "
+            input_ [type_ "text", name_ "name"]
+            label_ "Reps: "
+            input_ [type_ "text", name_ "reps"]
+            label_ "Time: "
+            input_ [type_ "text", name_ "whendo", value_ (pack . show $ nowTime)]
+            input_ [type_ "submit"]
+      ) "Exercise List"
+
     let maybeExercise = mbEx ps
     case maybeExercise of
       Just theExercise -> do
