@@ -53,7 +53,7 @@ main :: IO ()
 main =
   do pool <- runStdoutLoggingT $ createSqlitePool "api.db" 5
      spockCfg <- defaultSpockCfg () (PCPool pool) ()
-     runStdoutLoggingT $ runSqlPool (do runMigration migrateAll) pool
+     runStdoutLoggingT $ runSqlPool (runMigration migrateAll) pool
      runSpock 8000 (spock spockCfg app)
 
 runSQL :: (HasSpock m, SpockConn m ~ SqlBackend) => SqlPersistT (LoggingT IO) a -> m a
@@ -62,15 +62,15 @@ runSQL action = runQuery $ \conn -> runStdoutLoggingT $ runSqlConn action conn
 type ApiAction a = SpockAction SqlBackend () () a
 type Api = SpockM SqlBackend () () ()
 
+
 app = do
-  get root $ do
-    redirect "exercise"
-  -- get "exercise" $ do
-  --   allExercise <- runSQL $ selectList [] [Asc ExerciseId]
-  --   html . toStrict . renderText $ pageTemplate
-  --     (do exerciseTemplate allExercise) "some title"
+  get root $ redirect "exercise"
   get "exercise" $ do
-    allExercise <- runSQL $ selectList [] [Asc ExerciseId]
+    ps <- params
+    let fil = case lookup "filter" ps of
+                Nothing -> []
+                Just thefilter -> [Filter ExerciseName (Left thefilter) (BackendSpecificFilter "LIKE")]
+    allExercise <- runSQL $ selectList fil [Asc ExerciseId]
     nowTime <- liftIO getCurrentTime
     html . toStrict . renderText $ pageTemplate
       (do h1_ "Exercise List"
@@ -95,34 +95,6 @@ app = do
         redirect "/exercise"
       Nothing -> errorJson 1 "You screwed up"
 
-  get "exercisefilter" $ do
-    ps <- params
-    let fil = case lookup "filter" ps of
-                Nothing -> []
-                Just thefilter -> [Filter ExerciseName (Left thefilter) (BackendSpecificFilter "LIKE")]
-    allExercise <- runSQL $ selectList fil [Asc ExerciseId]
-    nowTime <- liftIO getCurrentTime
-    html . toStrict . renderText $ pageTemplate
-      (do h1_ "Exercise List"
-          exerciseTemplate allExercise
-          h1_ "Do stuff"
-          form_ [action_ "exercise", method_ "post"] $ do
-            label_ "Name: "
-            input_ [type_ "text", name_ "name"]
-            label_ "Reps: "
-            input_ [type_ "text", name_ "reps"]
-            label_ "Time: "
-            input_ [type_ "text", name_ "whendo", value_ (pack . show $ nowTime)]
-            input_ [type_ "submit"]
-      ) "Exercise List"
-
-    let maybeExercise = mbEx ps
-    case maybeExercise of
-      Just theExercise -> do
-        _ <- runSQL $ insert theExercise
-        redirect "/exercise"
-      Nothing -> errorJson 1 "You screwed up"
-
   get ("exercise" <//> var) $ \exerciseId -> do
     maybeExercise <- runSQL $ P.get exerciseId :: ApiAction (Maybe Exercise)
     case maybeExercise of
@@ -137,9 +109,9 @@ errorJson code message =
     , "error" .= object ["code" .= code, "message" .= message]
     ]
 
-exerciseTemplate xs = do
+exerciseTemplate xs =
   table_ $ do
-    tr_ $ do
+    tr_ $
       th_ "Exercise"
     sequence_ $ oneex <$> xs
 
@@ -147,19 +119,18 @@ pageTemplate :: Monad m => HtmlT m a -> Text -> HtmlT m a
 pageTemplate x title = do
   doctype_
   html_ $ do
-    head_ $ do
+    head_ $
       title_ $ toHtml title
-    body_ $ do
-      x
+    body_ x
 
 oneex :: Monad m => Entity Exercise -> HtmlT m ()
-oneex (Entity _ f) = do tr_ $
-                          do td_ . toHtml $ exerciseName f
-                             td_ . toHtml . show $ exerciseReps f
-                             td_ . toHtml . show $ exerciseWhendo f
+oneex (Entity _ f) = tr_ $
+                     do td_ . toHtml $ exerciseName f
+                        td_ . toHtml . show $ exerciseReps f
+                        td_ . toHtml . show $ exerciseWhendo f
 
 mbEx  :: (Eq a, Data.String.IsString a) => [(a, Text)] -> Maybe Exercise
-mbEx d = let upl = flip lookup $ d in
+mbEx d = let upl = flip lookup d in
            do n <- upl "name"
               r <- upl "reps"
               mr <- readMaybe $ unpack r
